@@ -1,4 +1,4 @@
-from fusion_flex import *
+from emotiva_rs232 import *
 import asyncio
 import logging
 import time
@@ -11,7 +11,9 @@ def run_event_loop(loop):
 def main():
     logging.basicConfig()
     logging.getLogger().setLevel(logging.DEBUG)
+    # test using a serial connection:
     #device = FusionFlexDevice(ConnectionType.SERIAL, "COM1")
+    # test using UDP:
     device = FusionFlexDevice(ConnectionType.UDP,
         local_ip='127.0.0.1', local_port=0,
         remote_hostname= "127.0.0.1", remote_port=5000)
