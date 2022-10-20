@@ -11,15 +11,18 @@ from serial import (
 )
 import serial_asyncio
 
-_BUFFER_SIZE = 16
-_ENCODING = "ascii"
+from .const import ConnectionType
+from .emotiva_device import EmotivaDevice
+
+MIN_VOLUME_DB: float = -95.5
+MAX_VOLUME_DB: float = 0
+BAUD_RATE: int = 9600
+WRITE_TIMEOUT: int = 3
+_BUFFER_SIZE: int = 16
+_ENCODING: str = "ascii"
 
 _MESSAGE_START_STR = "'@"
 _MESSAGE_END_STR = "'"
-    
-MIN_VOLUME_DB: float = -95.5
-MAX_VOLUME_DB: float = 0
-BAUD_RATE = 9600
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,16 +56,6 @@ class FusionFlexSourceMode(IntEnum):
     AUTO = 0
     INPUT_1 = 1
     INPUT_2 = 2
-
-
-class ConnectionType(IntEnum):
-    """
-    Enumeration of supported connection types for communicating with
-    the Emotiva Fusion Flex stereo amplifier.
-    """
-
-    SERIAL = 0
-    UDP = 1
 
 
 class FusionFlexProtocol(asyncio.Protocol, asyncio.DatagramProtocol):
@@ -144,7 +137,7 @@ class FusionFlexProtocol(asyncio.Protocol, asyncio.DatagramProtocol):
 
     def send(self, command: str):
         """Send a command to the device over the chosen connection type."""
-        _LOGGER.debug(f'Outgoing message to device: [{command}]')
+        _LOGGER.debug('Outgoing message to device: [%s]', command)
         command_bytes = command.encode(_ENCODING)
         if isinstance(self.transport, serial_asyncio.SerialTransport):
             transport: serial_asyncio.SerialTransport = self.transport
@@ -156,24 +149,30 @@ class FusionFlexProtocol(asyncio.Protocol, asyncio.DatagramProtocol):
             raise NotImplementedError()
 
 class FusionFlexStatus:
+    """Represents the status of a Fusion-Flex stereo amplifier."""
     @property
     def is_turned_on(self) -> bool:
+        """Indicates whether the device is turned on."""
         return self._is_turned_on
 
     @property
     def volume_db(self) -> float | None:
+        """Gets volume level in decibels."""
         return self._volume_db
 
     @property
     def volume_fraction(self) -> float | None:
+        """Gets volume level as a value between 0 and 1."""
         return FusionFlexDevice.volume_decibels_to_fraction(self._volume_db)
 
     @property
     def source_mode(self) -> FusionFlexSourceMode | None:
+        """Gets input source mode."""
         return self._source_mode
 
     @property
     def is_muted(self) -> bool | None:
+        """Indicates whether the device is muted."""
         return self._is_muted
 
     @is_turned_on.setter
@@ -202,46 +201,24 @@ class FusionFlexStatus:
         return "null" if self.source_mode is None else f'"{self.source_mode.name}"'
 
     def __str__(self):
-        return f'{{"is_turned_on":{self.is_turned_on}, "volume_db": {self.volume_db}, "source_mode": {self._get_source_mode_as_json_str()}, "is_muted": {self.is_muted}}}'
+        return ('{' +
+            f'"is_turned_on":{self.is_turned_on}, ' +
+            f'"volume_db": {self.volume_db}, ' +
+            f'"source_mode": {self._get_source_mode_as_json_str()}, ' +
+            f'"is_muted": {self.is_muted}' +
+             '}')
 
-class FusionFlexDevice:
+class FusionFlexDevice(EmotivaDevice):
     """A class for controlling Emotiva Fusion Flex stereo amplifiers over RS232."""
-
-    WRITE_TIMEOUT = 3
-
-    @property
-    def connection_type(self) -> ConnectionType:
-        """Get connection type."""
-        return self._connection_type
-
-    @property
-    def serial_port(self) -> str:
-        """Get serial device name or path."""
-        return self._serial_port
-
-    @property
-    def local_ip(self) -> str:
-        """Get local IP address."""
-        return self._remote_hostname
-
-    @property
-    def local_port(self) -> int:
-        """Get local UDP/TCP port number."""
-        return self._remote_port
-
-    @property
-    def remote_hostname(self) -> str:
-        """Get remote hostname."""
-        return self._remote_hostname
-
-    @property
-    def remote_port(self) -> int:
-        """Get remote UDP/TCP port number."""
-        return self._remote_port
 
     @property
     def status(self) -> FusionFlexStatus:
+        """Get device status."""
         return self._status
+
+    def set_status_changed(self, status_changed_callback: Callable[[EmotivaDevice],None]):
+        """Sets a callback for status change notifications."""
+        self._status_changed_callback = status_changed_callback
 
     @staticmethod
     def volume_fraction_to_decibels(value_fraction: float) -> float:
@@ -270,26 +247,29 @@ class FusionFlexDevice:
         remote_hostname: str = None,
         remote_port: int = 0,
     ) -> None:
+        super().__init__(
+            connection_type=connection_type,
+            serial_port=serial_port,
+            local_ip=local_ip,
+            local_port=local_port,
+            remote_hostname=remote_hostname,
+            remote_port=remote_port)
         self._status: FusionFlexStatus = None
-        self._connection_type: ConnectionType = connection_type
-        self._serial_port = serial_port
-        self._local_ip: str = local_ip
-        self._local_port: int = local_port
-        self._remote_hostname: str = remote_hostname
-        self._remote_port: int = remote_port
         self._started: bool = False
         self._transport: asyncio.BaseTransport = None
         self._protocol: FusionFlexProtocol = None
+        self._status_changed_callback: Callable[[EmotivaDevice], None] = None
 
     def _process_message(self, msg: str):
-        _LOGGER.debug(f'Incoming message from device: [{msg}]')
+        _LOGGER.debug('Incoming message from device: [{%s}]', msg)
         status = self._status if self._status is not None else FusionFlexStatus(True)
         # check if the response contains the volume level:
         result = re.search(r"^'@11[STP](-\d\d\.[05])'$", msg)
         if result is not None:
             # parse the volume level:
             # - the regex should protect us from bad strings.
-            # - we don't check volume range since it's already limited to -99.5 to 0 dB by the regex.
+            # - we don't check volume range since it's already
+            #   limited to -99.5 to 0 dB by the regex.
             status.volume_db = float(result.group(1))
         elif msg == RS232Command.POWER_ON.value:
             status.is_turned_on = True
@@ -306,30 +286,25 @@ class FusionFlexDevice:
         elif msg == RS232Command.MUTE_OFF.value:
             status.is_muted = False
         else:
-             _LOGGER.warning(f'Ignoring unknown message: "{msg}"')
-             return
-        if status.is_turned_on != True and msg != RS232Command.POWER_OFF.value:
+            _LOGGER.warning('Ignoring unknown message: "%s"', msg)
+            return
+        if msg != RS232Command.POWER_OFF.value:
             status.is_turned_on = True
         self._status = status
+        callback = self._status_changed_callback
+        if callback is not None:
+            callback(self)
 
     def _send_command(self, command: RS232Command | str):
         if isinstance(command, RS232Command):
             command = command.value
         self._protocol.send(command)
 
-    '''
-    def start(self):
-        if self._connection_type == ConnectionType.SERIAL:
-            ser = Serial(self._serial_port,
-                baudrate=BAUD_RATE,
-                bytesize=EIGHTBITS,
-                parity=PARITY_NONE,
-                stopbits=STOPBITS_ONE)
-            ser.open()
-            ser.
-    '''
     async def async_start(self):
         """Start communication with the device"""
+
+        if self._started:
+            return # already started.
         loop = asyncio.get_event_loop()
         if self._connection_type == ConnectionType.SERIAL:
             self._transport, self._protocol = await serial_asyncio.create_serial_connection(
@@ -357,6 +332,7 @@ class FusionFlexDevice:
             raise NotImplementedError(
                 f'unsupported connection type "{self._connection_type}"'
             )
+        self._started = True
 
     def stop(self):
         """Stop communication with the device"""
@@ -364,6 +340,9 @@ class FusionFlexDevice:
             self._transport.close()
             self._transport = None
         self._protocol = None
+
+    async def async_stop(self):
+        self.stop()
 
     def turn_on(self):
         """Send turn on command."""
