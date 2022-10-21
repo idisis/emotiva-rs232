@@ -1,14 +1,14 @@
 """A simple test application for controlling Emotiva Fusion-Flex."""
 import asyncio
 import logging
-import time
 import threading
+import time
+
 import keyboard
-from emotiva_rs232 import (
-    ConnectionType,
-    FusionFlexDevice,
-    FusionFlexSourceMode
-)
+
+from emotiva_rs232 import (ConnectionType, FusionFlexDevice,
+                           FusionFlexSourceMode)
+
 
 def _run_event_loop(loop):
     """Helper function for running an event loop in a separate thread."""

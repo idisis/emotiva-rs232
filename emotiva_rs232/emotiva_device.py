@@ -2,6 +2,7 @@
 
 from .const import ConnectionType
 
+
 class EmotivaDevice:
     """A base class for all Emotiva-RS232 devices."""
 

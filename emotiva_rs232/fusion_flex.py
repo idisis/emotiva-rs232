@@ -1,15 +1,12 @@
 """Classes for controlling Emotiva Fusion Flex over RS232."""
 import asyncio
-from collections.abc import Callable
-from enum import Enum, IntEnum
 import logging
 import re
-from serial import (
-    PARITY_NONE,
-    EIGHTBITS,
-    STOPBITS_ONE
-)
+from collections.abc import Callable
+from enum import Enum, IntEnum
+
 import serial_asyncio
+from serial import EIGHTBITS, PARITY_NONE, STOPBITS_ONE
 
 from .const import ConnectionType
 from .emotiva_device import EmotivaDevice
